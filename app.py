@@ -13,10 +13,14 @@ from optimizer import run_optimizer
 
 st.set_page_config(page_title="Shift Optimizer", layout="wide")
 
+PORTFOLIO_URL = "https://mona2083.github.io/portfolio-2026/index.html"
+
 LANG = {
     "ja": {
         "title":        "🗓️ シフト最適化システム",
         "caption":      "OR-Tools CP-SAT による自動シフト作成 ｜ 30名 / 3デパートメント / 週次",
+        "portfolio_btn":"🔗 ポートフォリオを見る",
+        "portfolio_label":"ポートフォリオ",
         "step1":        "Step 1: 従業員シフト希望",
         "step2":        "Step 2: デパートメント制約",
         "run":          "🚀 シフトを最適化する",
@@ -62,6 +66,8 @@ LANG = {
     "en": {
         "title":        "🗓️ Shift Optimizer",
         "caption":      "Automated scheduling with OR-Tools CP-SAT ｜ 30 staff / 3 departments / weekly",
+        "portfolio_btn":"🔗 View Portfolio",
+        "portfolio_label":"Portfolio",
         "step1":        "Step 1: Employee Shift Preferences",
         "step2":        "Step 2: Department Constraints",
         "run":          "🚀 Optimize Shifts",
@@ -112,6 +118,10 @@ with st.sidebar:
 
 T = LANG[lang]
 
+with st.sidebar:
+    st.link_button(T["portfolio_btn"], PORTFOLIO_URL, use_container_width=True)
+    st.divider()
+
 if "employees" not in st.session_state:
     st.session_state.employees = get_default_employees()
 if "dept_constraints" not in st.session_state:
@@ -123,8 +133,12 @@ if "edit_key" not in st.session_state:
 if "dept_edit_key" not in st.session_state:
     st.session_state.dept_edit_key = 0
 
-st.title(T["title"])
-st.caption(T["caption"])
+head_l, head_r = st.columns([0.78, 0.22], vertical_alignment="center")
+with head_l:
+    st.title(T["title"])
+    st.caption(T["caption"])
+with head_r:
+    st.link_button(T["portfolio_label"], PORTFOLIO_URL, use_container_width=True)
 
 
 # ── Step 1: 従業員シフト希望 ──────────────────────────────────────
