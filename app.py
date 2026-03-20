@@ -62,6 +62,7 @@ LANG = {
         "avg_days":     "平均勤務日数",
         "shift_rest":   "休",
         "days_worked":  "勤務日数",
+        "pref_mismatch_note": "※ ⚠ は「希望シフト未達」を示します（休みは対象外）。",
     },
     "en": {
         "title":        "🗓️ Shift Optimizer",
@@ -109,6 +110,7 @@ LANG = {
         "avg_days":     "Avg days worked",
         "shift_rest":   "Off",
         "days_worked":  "Days worked",
+        "pref_mismatch_note": "Note: ⚠ indicates a shift-preference mismatch (off days are excluded).",
     },
 }
 
@@ -293,16 +295,44 @@ def _shift_label(s, lang):
     return SHIFT_NAMES[lang][s]
 
 
-def _style_shift(val):
-    mapping = {
-        SHIFT_NAMES["ja"][0]: "background-color:#d4edda;font-weight:500",
-        SHIFT_NAMES["ja"][1]: "background-color:#d1ecf1;font-weight:500",
-        SHIFT_NAMES["ja"][2]: "background-color:#e2d9f3;font-weight:500",
-        SHIFT_NAMES["en"][0]: "background-color:#d4edda;font-weight:500",
-        SHIFT_NAMES["en"][1]: "background-color:#d1ecf1;font-weight:500",
-        SHIFT_NAMES["en"][2]: "background-color:#e2d9f3;font-weight:500",
-    }
-    return mapping.get(val, "color:#bbb")
+# 背景色のみ（シフト帯）。文字色は行スタイラで付与（⚠付きセルでも背景を一致させるため）
+_SHIFT_BG = {
+    0: "background-color:#d4edda",
+    1: "background-color:#d1ecf1",
+    2: "background-color:#e2d9f3",
+}
+
+
+def _style_schedule_row(row, emp_by_name: dict, day_to_idx: dict, schedule: dict):
+    """日列は実際の割当から背景＋文字色。勤務セルは黒太字、希望未達は赤太字。休みは読みやすいグレー。"""
+    emp = emp_by_name[row[T["col_name"]]]
+    styles = []
+    for col in row.index:
+        if col in (T["col_name"], T["col_role"]):
+            styles.append("")
+            continue
+        if col == T["days_worked"]:
+            # テーマ上この列の背景が暗く value が読みづらい場合があるため白字に固定
+            styles.append("color:#ffffff;font-weight:700")
+            continue
+        if col not in day_to_idx:
+            styles.append("")
+            continue
+        d = day_to_idx[col]
+        assigned = schedule[emp["id"], d]
+        if assigned is None:
+            styles.append("color:#555;font-weight:500")
+            continue
+        bg = _SHIFT_BG.get(assigned, "background-color:#f0f0f0")
+        is_mismatch = (
+            emp.get("shift_pref") is not None
+            and assigned != emp["shift_pref"]
+        )
+        if is_mismatch:
+            styles.append(f"{bg};color:#c0392b;font-weight:700")
+        else:
+            styles.append(f"{bg};color:#000000;font-weight:700")
+    return styles
 
 
 def render_shift_table(schedule: dict, employees: list[dict]) -> None:
@@ -319,15 +349,25 @@ def render_shift_table(schedule: dict, employees: list[dict]) -> None:
             for emp in dept_emps:
                 row = {T["col_name"]: emp["name"], T["col_role"]: ROLE_NAMES[lang][emp["role"]]}
                 for d in range(N_DAYS):
-                    row[day_names[d]] = _shift_label(schedule[emp["id"], d], lang)
+                    assigned = schedule[emp["id"], d]
+                    cell_label = _shift_label(assigned, lang)
+                    if emp.get("shift_pref") is not None and assigned is not None and assigned != emp["shift_pref"]:
+                        cell_label = f"{cell_label} ⚠"
+                    row[day_names[d]] = cell_label
                 row[T["days_worked"]] = sum(1 for d in range(N_DAYS) if schedule[emp["id"], d] is not None)
                 rows.append(row)
             df = pd.DataFrame(rows)
+            emp_by_name = {e["name"]: e for e in dept_emps}
+            day_to_idx = {day_names[d]: d for d in range(N_DAYS)}
             st.dataframe(
-                df.style.applymap(_style_shift, subset=day_names),
+                df.style.apply(
+                    lambda r: _style_schedule_row(r, emp_by_name, day_to_idx, schedule),
+                    axis=1,
+                ),
                 use_container_width=True,
                 hide_index=True,
             )
+            st.caption(T["pref_mismatch_note"])
 
             st.caption(T["headcount"])
             rows2 = []

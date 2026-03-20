@@ -57,24 +57,29 @@ def get_default_employees() -> list[dict]:
 
 
 def get_default_dept_constraints() -> dict:
+    # Keep defaults solvable while making them tighter:
+    # department-level target ranges are distributed across 3 shifts.
     return {
         "A": {
-            "min_per_shift":            [2, 2, 1],
-            "max_per_shift":            [5, 5, 3],
+            # Grocery target approx: min 4, max 8 (per day, distributed)
+            "min_per_shift":            [2, 1, 1],
+            "max_per_shift":            [3, 3, 2],
             "max_consecutive":          5,
             "need_manager_per_day":     True,
             "need_certified_per_shift": True,
         },
         "B": {
-            "min_per_shift":            [2, 2, 1],
-            "max_per_shift":            [4, 4, 3],
+            # Apparel target approx: min 4, max 6 (per day, distributed)
+            "min_per_shift":            [2, 1, 1],
+            "max_per_shift":            [2, 2, 2],
             "max_consecutive":          5,
             "need_manager_per_day":     True,
             "need_certified_per_shift": False,
         },
         "C": {
+            # Cashier target approx: min 3, max 5 (per day, distributed)
             "min_per_shift":            [1, 1, 1],
-            "max_per_shift":            [3, 3, 2],
+            "max_per_shift":            [2, 2, 1],
             "max_consecutive":          5,
             "need_manager_per_day":     True,
             "need_certified_per_shift": False,
@@ -106,13 +111,20 @@ def randomize_dept_constraints(constraints: dict, seed: int | None = None) -> di
         random.seed(seed)
     result = {}
     for dept_id, c in constraints.items():
-        r    = dict(c)
-        mins = [random.randint(1, 2), random.randint(1, 2), 1]
-        maxs = [mins[0] + random.randint(1, 3), mins[1] + random.randint(1, 3), mins[2] + random.randint(1, 2)]
-        r["min_per_shift"]   = mins
-        r["max_per_shift"]   = maxs
+        r = dict(c)
+        base_mins = c["min_per_shift"]
+        base_maxs = c["max_per_shift"]
+        mins = []
+        maxs = []
+        for i in range(N_SHIFTS):
+            mn = max(0, base_mins[i] + random.choice([-1, 0, 0, 1]))
+            mx = max(mn, base_maxs[i] + random.choice([-1, 0, 1]))
+            mins.append(mn)
+            maxs.append(mx)
+        r["min_per_shift"] = mins
+        r["max_per_shift"] = maxs
         r["max_consecutive"] = random.randint(4, 6)
-        result[dept_id]      = r
+        result[dept_id] = r
     return result
 
 
