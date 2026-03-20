@@ -29,9 +29,12 @@ SHIFT_PREF_NONE = {"ja": "指定なし", "en": "No preference"}
 
 
 def _role(dept: str, idx: int) -> str:
-    if idx == 0:      return "manager"
-    if idx <= 2:      return "asst_manager"
-    if dept == "A" and idx <= 5: return "certified"
+    if idx == 0:
+        return "manager"
+    if idx <= 2:
+        return "asst_manager"
+    if dept == "A" and idx <= 5:
+        return "certified"
     return "staff"
 
 
@@ -57,11 +60,8 @@ def get_default_employees() -> list[dict]:
 
 
 def get_default_dept_constraints() -> dict:
-    # Keep defaults solvable while making them tighter:
-    # department-level target ranges are distributed across 3 shifts.
     return {
         "A": {
-            # Grocery target approx: min 4, max 8 (per day, distributed)
             "min_per_shift":            [2, 1, 1],
             "max_per_shift":            [3, 3, 2],
             "max_consecutive":          5,
@@ -69,7 +69,6 @@ def get_default_dept_constraints() -> dict:
             "need_certified_per_shift": True,
         },
         "B": {
-            # Apparel target approx: min 4, max 6 (per day, distributed)
             "min_per_shift":            [2, 1, 1],
             "max_per_shift":            [2, 2, 2],
             "max_consecutive":          5,
@@ -77,7 +76,6 @@ def get_default_dept_constraints() -> dict:
             "need_certified_per_shift": False,
         },
         "C": {
-            # Cashier target approx: min 3, max 5 (per day, distributed)
             "min_per_shift":            [1, 1, 1],
             "max_per_shift":            [2, 2, 1],
             "max_consecutive":          5,
@@ -92,13 +90,13 @@ def randomize_employee_preferences(employees: list[dict], seed: int | None = Non
         random.seed(seed)
     result = []
     for emp in employees:
-        e       = dict(emp)
+        e = dict(emp)
         all_days = list(range(7))
-        n_abs   = random.randint(0, 1)
-        e["abs_ng"]     = random.sample(all_days, n_abs)
-        remain          = [d for d in all_days if d not in e["abs_ng"]]
-        n_soft          = random.randint(0, min(2, len(remain)))
-        e["soft_ng"]    = random.sample(remain, n_soft)
+        n_abs = random.randint(0, 1)
+        e["abs_ng"] = random.sample(all_days, n_abs)
+        remain = [d for d in all_days if d not in e["abs_ng"]]
+        n_soft = random.randint(0, min(2, len(remain)))
+        e["soft_ng"] = random.sample(remain, n_soft)
         e["shift_pref"] = random.choice([None, None, 0, 1, 2])
         e["min_days"]   = random.randint(3, 4)
         e["max_days"]   = random.randint(5, 6)
@@ -130,9 +128,10 @@ def randomize_dept_constraints(constraints: dict, seed: int | None = None) -> di
 
 def employees_to_df(employees: list[dict], lang: str):
     import pandas as pd
-    avail     = AVAIL_OPTS[lang]
+
+    avail = AVAIL_OPTS[lang]
     pref_none = SHIFT_PREF_NONE[lang]
-    shifts    = SHIFT_NAMES[lang]
+    shifts = SHIFT_NAMES[lang]
     rows = []
     for emp in employees:
         row = {
@@ -157,18 +156,18 @@ def employees_to_df(employees: list[dict], lang: str):
 
 
 def df_to_employees(df, employees_orig: list[dict], lang: str) -> list[dict]:
-    avail     = AVAIL_OPTS[lang]
+    avail = AVAIL_OPTS[lang]
     pref_none = SHIFT_PREF_NONE[lang]
-    shifts    = SHIFT_NAMES[lang]
-    orig_map  = {e["id"]: e for e in employees_orig}
-    result    = []
+    shifts = SHIFT_NAMES[lang]
+    orig_map = {e["id"]: e for e in employees_orig}
+    result = []
     for _, row in df.iterrows():
-        eid     = int(row["_id"])
-        orig    = orig_map[eid]
-        abs_ng  = [d for d in range(7) if row[f"d{d}"] == avail[2]]
+        eid = int(row["_id"])
+        orig = orig_map[eid]
+        abs_ng = [d for d in range(7) if row[f"d{d}"] == avail[2]]
         soft_ng = [d for d in range(7) if row[f"d{d}"] == avail[1]]
-        pref_s  = row["pref"]
-        pref    = None if pref_s == pref_none else shifts.index(pref_s)
+        pref_s = row["pref"]
+        pref = None if pref_s == pref_none else shifts.index(pref_s)
         result.append({
             **orig,
             "min_days":   int(row["min"]),

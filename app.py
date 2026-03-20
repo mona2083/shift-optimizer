@@ -286,16 +286,16 @@ if result["status"] == "no_solution":
 
 st.success(T["result_ok"] if result.get("is_optimal") else T["result_feas"])
 
-schedule  = result["schedule"]
+schedule = result["schedule"]
 employees = st.session_state.employees
 
 
 def _shift_label(s, lang):
-    if s is None: return T["shift_rest"]
+    if s is None:
+        return T["shift_rest"]
     return SHIFT_NAMES[lang][s]
 
 
-# 背景色のみ（シフト帯）。文字色は行スタイラで付与（⚠付きセルでも背景を一致させるため）
 _SHIFT_BG = {
     0: "background-color:#d4edda",
     1: "background-color:#d1ecf1",
@@ -304,7 +304,6 @@ _SHIFT_BG = {
 
 
 def _style_schedule_row(row, emp_by_name: dict, day_to_idx: dict, schedule: dict):
-    """日列は実際の割当から背景＋文字色。勤務セルは黒太字、希望未達は赤太字。休みは読みやすいグレー。"""
     emp = emp_by_name[row[T["col_name"]]]
     styles = []
     for col in row.index:
@@ -312,7 +311,6 @@ def _style_schedule_row(row, emp_by_name: dict, day_to_idx: dict, schedule: dict
             styles.append("")
             continue
         if col == T["days_worked"]:
-            # テーマ上この列の背景が暗く value が読みづらい場合があるため白字に固定
             styles.append("color:#ffffff;font-weight:700")
             continue
         if col not in day_to_idx:
@@ -324,10 +322,7 @@ def _style_schedule_row(row, emp_by_name: dict, day_to_idx: dict, schedule: dict
             styles.append("color:#555;font-weight:500")
             continue
         bg = _SHIFT_BG.get(assigned, "background-color:#f0f0f0")
-        is_mismatch = (
-            emp.get("shift_pref") is not None
-            and assigned != emp["shift_pref"]
-        )
+        is_mismatch = emp.get("shift_pref") is not None and assigned != emp["shift_pref"]
         if is_mismatch:
             styles.append(f"{bg};color:#c0392b;font-weight:700")
         else:
@@ -359,11 +354,12 @@ def render_shift_table(schedule: dict, employees: list[dict]) -> None:
             df = pd.DataFrame(rows)
             emp_by_name = {e["name"]: e for e in dept_emps}
             day_to_idx = {day_names[d]: d for d in range(N_DAYS)}
+
+            def _apply_row_style(r):
+                return _style_schedule_row(r, emp_by_name, day_to_idx, schedule)
+
             st.dataframe(
-                df.style.apply(
-                    lambda r: _style_schedule_row(r, emp_by_name, day_to_idx, schedule),
-                    axis=1,
-                ),
+                df.style.apply(_apply_row_style, axis=1),
                 use_container_width=True,
                 hide_index=True,
             )
