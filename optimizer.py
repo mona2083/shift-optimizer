@@ -5,9 +5,16 @@ N_SHIFTS = 3
 
 PENALTY_SOFT_NG    = 100
 PENALTY_SHIFT_PREF = 50
+# 【追加】人数不足1枠に対する超巨大なペナルティ（個人の希望より絶対に優先して埋めるため）
+PENALTY_UNDERSTAFF = 10000 
 
 
-def run_optimizer(employees: list[dict], dept_constraints: dict, time_limit: float = 15.0) -> dict:
+def run_optimizer(
+    employees: list[dict], 
+    dept_constraints: dict, 
+    time_limit: float = 15.0, 
+    allow_understaffing: bool = False # 【追加】ベストエフォートモードのフラグ
+) -> dict:
     model = cp_model.CpModel()
     E = len(employees)
 
@@ -53,6 +60,8 @@ def run_optimizer(employees: list[dict], dept_constraints: dict, time_limit: flo
         if emp["role"] in ("manager", "asst_manager", "certified"):
             dept_certified[d].append(e)
 
+    penalty_terms = []
+
     for dept_id, constr in dept_constraints.items():
         emps  = dept_emps[dept_id]
         mgrs  = dept_managers[dept_id]
@@ -63,16 +72,35 @@ def run_optimizer(employees: list[dict], dept_constraints: dict, time_limit: flo
         for d in range(N_DAYS):
             for s in range(N_SHIFTS):
                 count = sum(x[e, d, s] for e in emps)
-                model.Add(count >= mins[s])
+                
+                # 【追加】ベストエフォートモードのロジック
+                if allow_understaffing:
+                    # 不足分を補うスラック変数（0 〜 必要最低人数）
+                    shortage = model.NewIntVar(0, mins[s], f"shortage_{dept_id}_{d}_{s}")
+                    model.Add(count + shortage >= mins[s])
+                    penalty_terms.append(shortage * PENALTY_UNDERSTAFF)
+                else:
+                    # 従来の絶対ルール（ハード制約）
+                    model.Add(count >= mins[s])
+                
                 model.Add(count <= maxs[s])
 
                 if constr.get("need_certified_per_shift") and certs:
-                    model.Add(sum(x[e, d, s] for e in certs) >= 1)
+                    if allow_understaffing:
+                        cert_shortage = model.NewIntVar(0, 1, f"cert_shortage_{dept_id}_{d}_{s}")
+                        model.Add(sum(x[e, d, s] for e in certs) + cert_shortage >= 1)
+                        penalty_terms.append(cert_shortage * PENALTY_UNDERSTAFF)
+                    else:
+                        model.Add(sum(x[e, d, s] for e in certs) >= 1)
 
             if constr.get("need_manager_per_day") and mgrs:
-                model.Add(sum(x[e, d, s] for e in mgrs for s in range(N_SHIFTS)) >= 1)
+                if allow_understaffing:
+                    mgr_shortage = model.NewIntVar(0, 1, f"mgr_shortage_{dept_id}_{d}")
+                    model.Add(sum(x[e, d, s] for e in mgrs for s in range(N_SHIFTS)) + mgr_shortage >= 1)
+                    penalty_terms.append(mgr_shortage * PENALTY_UNDERSTAFF)
+                else:
+                    model.Add(sum(x[e, d, s] for e in mgrs for s in range(N_SHIFTS)) >= 1)
 
-    penalty_terms = []
     for e, emp in enumerate(employees):
         for d in emp.get("soft_ng", []):
             if 0 <= d < N_DAYS:

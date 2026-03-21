@@ -20,8 +20,9 @@ Manual shift scheduling for 30+ staff across multiple departments typically take
 - Ensuring manager coverage every day requires careful tracking
 - Balancing fairness across employees is nearly impossible by hand
 - Any change requires rechecking all constraints from scratch
+- **The "Infeasible" Problem:** When constraints are too tight (e.g., too many people requested Friday off), traditional solvers just crash or return "No Solution," leaving the manager in the dark.
 
-This app eliminates all of that — enter preferences, click Optimize, get a provably optimal schedule.
+This app eliminates all of that — enter preferences, click Optimize, and get a provably optimal schedule. If the math is impossible, it tells you exactly why or offers a "Best Effort" workaround.
 
 ---
 
@@ -30,9 +31,7 @@ This app eliminates all of that — enter preferences, click Optimize, get a pro
 ### ⚙️ Constraint-Based Optimization
 - **Hard constraints** — guaranteed, never violated:
   - Must-off days (absolute unavailability)
-  - Minimum & maximum staff per shift per department
-  - Manager/assistant manager coverage every day
-  - Certified staff coverage per shift (Grocery department)
+  - Maximum warehouse/department capacity per shift
   - Maximum consecutive working days
   - Minimum & maximum working days per week per employee
 
@@ -40,17 +39,20 @@ This app eliminates all of that — enter preferences, click Optimize, get a pro
   - Prefer-off days (penalty: 100 per violation)
   - Shift time preferences — morning/afternoon/night (penalty: 50 per mismatch)
 
+### 🛡️ Resilience & Edge-Case Handling (New)
+- **Heuristic Pre-check**: Instantly catches mathematically impossible conditions (e.g., total available employee days < required shift slots) before invoking the solver, providing clear, actionable error messages.
+- **Best Effort Mode (Slack Variables)**: A toggle that relaxes minimum staffing requirements. It uses slack variables with massive penalty weights to ensure the solver *always* returns the best possible schedule. It highlights understaffed slots with a ⚠️, allowing managers to easily identify bottlenecks and make human decisions (like calling in help).
+
 ### 📊 Visualizations
 - Weekly schedule heatmap per department
-- Employee satisfaction bar chart (penalty score per employee)
-- Shift distribution summary
+- Employee satisfaction bar chart (based on penalty scores)
+- Headcount summary indicating where minimum staffing was missed (if Best Effort Mode is used)
 
 ### 🌐 Bilingual
 - Full English / 日本語 toggle
 
 ### 🎲 Demo Mode
 - Randomize employee availability and preferences with one click
-- Useful for demonstrations and testing
 
 ---
 
@@ -69,10 +71,10 @@ This app eliminates all of that — enter preferences, click Optimize, get a pro
 
 ## Project Structure
 
-```
+```text
 shift-optimizer/
-├── app.py              # Streamlit UI — tabs, data editor, result display
-├── optimizer.py        # OR-Tools CP-SAT model — constraints + objective
+├── app.py              # Streamlit UI — pre-checks, tabs, data editor
+├── optimizer.py        # OR-Tools CP-SAT model — constraints, slack variables, objective
 ├── data.py             # Employee data, department configs, defaults
 ├── requirements.txt
 └── .gitignore
@@ -89,7 +91,7 @@ shift-optimizer/
 ### Installation
 
 ```bash
-git clone https://github.com/mona2083/shift-optimizer.git
+git clone [https://github.com/mona2083/shift-optimizer.git](https://github.com/mona2083/shift-optimizer.git)
 cd shift-optimizer
 python -m venv .venv
 source .venv/bin/activate      # Windows: .venv\Scripts\activate
@@ -115,15 +117,15 @@ Open [http://localhost:8501](http://localhost:8501) in your browser.
 - Set minimum and maximum staff per shift
 - Configure maximum consecutive working days
 
-### 3. Optimize
+### 3. Optimize & Handle Edge Cases
 - Click **"🚀 Optimize Shifts"**
-- The solver runs for up to 15 seconds
-- Results display the optimal schedule with satisfaction scores
+- If the constraints are physically impossible (e.g., not enough staff), the pre-check will warn you.
+- Toggle **"⚠️ Best Effort Mode"** to allow understaffing, then optimize again. The solver will fill what it can and flag the empty slots.
 
 ### 4. Read the Results
-- **Schedule heatmap** — color-coded by department, shows assigned shifts per employee per day
-- **Satisfaction bar chart** — lower score = happier employee (penalty score)
-- **Summary table** — total shifts assigned, satisfaction score, violations per employee
+- **Schedule heatmap** — color-coded by department, shows assigned shifts and mismatched preferences (⚠)
+- **Satisfaction bar chart** — 100 is a perfect score; points are deducted for ignoring soft constraints
+- **Headcount Summary** — shows exact staffing per shift and flags (⚠️) if minimums weren't met
 
 ---
 
@@ -143,21 +145,28 @@ Open [http://localhost:8501](http://localhost:8501) in your browser.
 
 The CP-SAT solver creates one binary variable per `(employee, day, shift)` combination — **630 variables** total — and assigns each to 0 (not working) or 1 (working).
 
-**Hard constraints** are added as mathematical equalities/inequalities — the solver will never produce a schedule that violates them. If no valid schedule exists, it reports "no solution" rather than returning an invalid result.
+**Hard constraints** are added as mathematical equalities/inequalities. **Soft constraints** are converted into penalty terms. The solver's objective is to minimize the total penalty score.
 
-**Soft constraints** are converted into penalty terms. The solver's objective is to minimize the total penalty score — maximizing overall employee satisfaction subject to all hard rules being satisfied.
+To handle real-world infeasibility, **Best Effort Mode** transforms hard "minimum staff" constraints into soft constraints using **slack variables**. 
 
 ```python
-# Example: must-off day → force variable to 0
-model.Add(x[employee, day, shift] == 0)
+if allow_understaffing:
+    # Add a slack variable for missing staff (0 to min_required)
+    shortage = model.NewIntVar(0, min_required, "shortage")
+    model.Add(sum(x[e, day, shift]) + shortage >= min_required)
+    
+    # Massive penalty ensures the solver only understaffs if absolutely necessary
+    penalty += shortage * 10000 
+else:
+    # Strict hard constraint
+    model.Add(sum(x[e, day, shift]) >= min_required)
 
-# Example: minimum staff per shift
-model.Add(sum(x[e, day, shift] for e in dept_employees) >= min_staff)
-
-# Example: soft preference penalty
+# Normal soft constraints (preferences)
 penalty += x[employee, day, wrong_shift] * 50
+
 model.Minimize(sum(penalties))
 ```
+
 ---
 
 ## Author

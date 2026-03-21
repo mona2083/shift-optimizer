@@ -62,6 +62,7 @@ LANG = {
         "avg_days":     "平均勤務日数",
         "shift_rest":   "休",
         "days_worked":  "勤務日数",
+        "pref_mismatch_note": "※ ⚠ は「希望シフト未達」を示します（休みは対象外）。",
     },
     "en": {
         "title":        "🗓️ Shift Optimizer",
@@ -109,147 +110,206 @@ LANG = {
         "avg_days":     "Avg days worked",
         "shift_rest":   "Off",
         "days_worked":  "Days worked",
+        "pref_mismatch_note": "Note: ⚠ indicates a shift-preference mismatch (off days are excluded).",
     },
 }
 
-with st.sidebar:
-    lang_choice = st.radio("🌐 Language / 言語", ["日本語", "English"], horizontal=True)
-    lang = "ja" if lang_choice == "日本語" else "en"
+def init_session_state() -> None:
+    if "employees" not in st.session_state:
+        st.session_state.employees = get_default_employees()
+    if "dept_constraints" not in st.session_state:
+        st.session_state.dept_constraints = get_default_dept_constraints()
+    if "result" not in st.session_state:
+        st.session_state.result = None
+    if "edit_key" not in st.session_state:
+        st.session_state.edit_key = 0
+    if "dept_edit_key" not in st.session_state:
+        st.session_state.dept_edit_key = 0
 
-T = LANG[lang]
 
-with st.sidebar:
-    st.link_button(T["portfolio_btn"], PORTFOLIO_URL, use_container_width=True)
+def render_sidebar() -> tuple[str, dict]:
+    with st.sidebar:
+        lang_choice = st.radio("🌐 Language / 言語", ["日本語", "English"], horizontal=True)
+        lang = "ja" if lang_choice == "日本語" else "en"
+        T = LANG[lang]
+        st.link_button(T["portfolio_btn"], PORTFOLIO_URL, use_container_width=True)
+        st.divider()
+    return lang, T
+
+
+def render_header(T: dict) -> None:
+    head_l, head_r = st.columns([0.78, 0.22], vertical_alignment="center")
+    with head_l:
+        st.title(T["title"])
+        st.caption(T["caption"])
+    with head_r:
+        st.link_button(T["portfolio_label"], PORTFOLIO_URL, use_container_width=True)
+
+
+init_session_state()
+lang, T = render_sidebar()
+render_header(T)
+
+
+def render_step1_employee_preferences() -> None:
+    st.header(T["step1"])
+
+    c1, c2, _ = st.columns([1, 1, 6])
+    with c1:
+        if st.button(T["random"], key="rand_emp"):
+            st.session_state.employees = randomize_employee_preferences(get_default_employees())
+            st.session_state.edit_key += 1
+            st.rerun()
+    with c2:
+        if st.button(T["reset"], key="reset_emp"):
+            st.session_state.employees = get_default_employees()
+            st.session_state.edit_key += 1
+            st.rerun()
+
+    dept_tabs = st.tabs([f"{DEPT_NAMES[lang][d]}" for d in DEPT_IDS])
+    for tab, dept_id in zip(dept_tabs, DEPT_IDS):
+        with tab:
+            dept_emps_orig = [e for e in st.session_state.employees if e["dept"] == dept_id]
+            df = employees_to_df(dept_emps_orig, lang)
+
+            avail_opts = AVAIL_OPTS[lang]
+            shift_opts = [SHIFT_PREF_NONE[lang]] + SHIFT_NAMES[lang]
+            day_names = DAY_NAMES[lang]
+
+            column_config = {
+                "_id": None,
+                "_dept": None,
+                "_role": None,
+                "name": st.column_config.TextColumn(T["col_name"], disabled=True, width="small"),
+                "role_label": st.column_config.TextColumn(T["col_role"], disabled=True, width="small"),
+                "min": st.column_config.NumberColumn(T["col_min"], min_value=0, max_value=7, width="small"),
+                "max": st.column_config.NumberColumn(T["col_max"], min_value=0, max_value=7, width="small"),
+                "pref": st.column_config.SelectboxColumn(T["col_pref"], options=shift_opts, width="small"),
+                **{
+                    f"d{d}": st.column_config.SelectboxColumn(day_names[d], options=avail_opts, width="small")
+                    for d in range(7)
+                },
+            }
+
+            edited_df = st.data_editor(
+                df,
+                column_config=column_config,
+                key=f"editor_{dept_id}_{st.session_state.edit_key}",
+                hide_index=True,
+                use_container_width=True,
+            )
+
+            new_emps = df_to_employees(edited_df, dept_emps_orig, lang)
+            for new_emp in new_emps:
+                idx = next(i for i, e in enumerate(st.session_state.employees) if e["id"] == new_emp["id"])
+                st.session_state.employees[idx] = new_emp
+
     st.divider()
 
-if "employees" not in st.session_state:
-    st.session_state.employees = get_default_employees()
-if "dept_constraints" not in st.session_state:
-    st.session_state.dept_constraints = get_default_dept_constraints()
-if "result" not in st.session_state:
-    st.session_state.result = None
-if "edit_key" not in st.session_state:
-    st.session_state.edit_key = 0
-if "dept_edit_key" not in st.session_state:
-    st.session_state.dept_edit_key = 0
 
-head_l, head_r = st.columns([0.78, 0.22], vertical_alignment="center")
-with head_l:
-    st.title(T["title"])
-    st.caption(T["caption"])
-with head_r:
-    st.link_button(T["portfolio_label"], PORTFOLIO_URL, use_container_width=True)
+def render_step2_department_constraints() -> None:
+    st.header(T["step2"])
 
+    c3, c4, _ = st.columns([1, 1, 6])
+    with c3:
+        if st.button(T["random"], key="rand_dept"):
+            st.session_state.dept_constraints = randomize_dept_constraints(get_default_dept_constraints())
+            st.session_state.dept_edit_key += 1
+            st.rerun()
+    with c4:
+        if st.button(T["reset"], key="reset_dept"):
+            st.session_state.dept_constraints = get_default_dept_constraints()
+            st.session_state.dept_edit_key += 1
+            st.rerun()
 
-# ── Step 1: 従業員シフト希望 ──────────────────────────────────────
-st.header(T["step1"])
+    dept_tabs2 = st.tabs([DEPT_NAMES[lang][d] for d in DEPT_IDS])
+    for tab, dept_id in zip(dept_tabs2, DEPT_IDS):
+        with tab:
+            c = st.session_state.dept_constraints[dept_id]
+            shift_labels = [T["dept_morning"], T["dept_noon"], T["dept_night"]]
+            new_mins, new_maxs = [], []
+            for si, slabel in enumerate(shift_labels):
+                st.caption(slabel)
+                cc1, cc2 = st.columns(2)
+                mn = cc1.number_input(
+                    T["dept_min"], 0, 10, c["min_per_shift"][si], step=1,
+                    key=f"dmin_{dept_id}_{si}_{st.session_state.dept_edit_key}"
+                )
+                mx = cc2.number_input(
+                    T["dept_max"], 0, 10, c["max_per_shift"][si], step=1,
+                    key=f"dmax_{dept_id}_{si}_{st.session_state.dept_edit_key}"
+                )
+                new_mins.append(mn)
+                new_maxs.append(mx)
 
-c1, c2, _ = st.columns([1, 1, 6])
-with c1:
-    if st.button(T["random"], key="rand_emp"):
-        st.session_state.employees = randomize_employee_preferences(get_default_employees())
-        st.session_state.edit_key += 1
-        st.rerun()
-with c2:
-    if st.button(T["reset"], key="reset_emp"):
-        st.session_state.employees = get_default_employees()
-        st.session_state.edit_key += 1
-        st.rerun()
+            max_c = st.number_input(
+                T["dept_maxc"], 1, 7, c["max_consecutive"], step=1,
+                key=f"maxc_{dept_id}_{st.session_state.dept_edit_key}"
+            )
+            need_mgr = st.checkbox(
+                T["need_mgr"], c.get("need_manager_per_day", True),
+                key=f"mgr_{dept_id}_{st.session_state.dept_edit_key}"
+            )
+            need_cert = st.checkbox(
+                T["need_cert"], c.get("need_certified_per_shift", False),
+                key=f"cert_{dept_id}_{st.session_state.dept_edit_key}"
+            )
 
-dept_tabs = st.tabs([f"{DEPT_NAMES[lang][d]}" for d in DEPT_IDS])
-for tab, dept_id in zip(dept_tabs, DEPT_IDS):
-    with tab:
-        dept_emps_orig = [e for e in st.session_state.employees if e["dept"] == dept_id]
-        df = employees_to_df(dept_emps_orig, lang)
+            st.session_state.dept_constraints[dept_id].update({
+                "min_per_shift": new_mins,
+                "max_per_shift": new_maxs,
+                "max_consecutive": max_c,
+                "need_manager_per_day": need_mgr,
+                "need_certified_per_shift": need_cert,
+            })
 
-        avail_opts = AVAIL_OPTS[lang]
-        shift_opts = [SHIFT_PREF_NONE[lang]] + SHIFT_NAMES[lang]
-        day_names  = DAY_NAMES[lang]
-
-        column_config = {
-            "_id":        None,
-            "_dept":      None,
-            "_role":      None,
-            "name":       st.column_config.TextColumn(T["col_name"],  disabled=True, width="small"),
-            "role_label": st.column_config.TextColumn(T["col_role"],  disabled=True, width="small"),
-            "min":        st.column_config.NumberColumn(T["col_min"], min_value=0, max_value=7, width="small"),
-            "max":        st.column_config.NumberColumn(T["col_max"], min_value=0, max_value=7, width="small"),
-            "pref":       st.column_config.SelectboxColumn(T["col_pref"], options=shift_opts, width="small"),
-            **{
-                f"d{d}": st.column_config.SelectboxColumn(day_names[d], options=avail_opts, width="small")
-                for d in range(7)
-            },
-        }
-
-        edited_df = st.data_editor(
-            df,
-            column_config=column_config,
-            key=f"editor_{dept_id}_{st.session_state.edit_key}",
-            hide_index=True,
-            use_container_width=True,
-        )
-
-        new_emps = df_to_employees(edited_df, dept_emps_orig, lang)
-        for new_emp in new_emps:
-            idx = next(i for i, e in enumerate(st.session_state.employees) if e["id"] == new_emp["id"])
-            st.session_state.employees[idx] = new_emp
-
-st.divider()
+    st.divider()
 
 
-# ── Step 2: デパートメント制約 ────────────────────────────────────
-st.header(T["step2"])
+render_step1_employee_preferences()
+render_step2_department_constraints()
 
-c3, c4, _ = st.columns([1, 1, 6])
-with c3:
-    if st.button(T["random"], key="rand_dept"):
-        st.session_state.dept_constraints = randomize_dept_constraints(get_default_dept_constraints())
-        st.session_state.dept_edit_key += 1
-        st.rerun()
-with c4:
-    if st.button(T["reset"], key="reset_dept"):
-        st.session_state.dept_constraints = get_default_dept_constraints()
-        st.session_state.dept_edit_key += 1
-        st.rerun()
-
-dept_tabs2 = st.tabs([DEPT_NAMES[lang][d] for d in DEPT_IDS])
-for tab, dept_id in zip(dept_tabs2, DEPT_IDS):
-    with tab:
-        c = st.session_state.dept_constraints[dept_id]
-        shift_labels = [T["dept_morning"], T["dept_noon"], T["dept_night"]]
-        new_mins, new_maxs = [], []
-        for si, slabel in enumerate(shift_labels):
-            st.caption(slabel)
-            cc1, cc2 = st.columns(2)
-            mn = cc1.number_input(T["dept_min"], 0, 10, c["min_per_shift"][si], step=1,
-                                  key=f"dmin_{dept_id}_{si}_{st.session_state.dept_edit_key}")
-            mx = cc2.number_input(T["dept_max"], 0, 10, c["max_per_shift"][si], step=1,
-                                  key=f"dmax_{dept_id}_{si}_{st.session_state.dept_edit_key}")
-            new_mins.append(mn)
-            new_maxs.append(mx)
-
-        max_c = st.number_input(T["dept_maxc"], 1, 7, c["max_consecutive"], step=1,
-                                key=f"maxc_{dept_id}_{st.session_state.dept_edit_key}")
-        need_mgr  = st.checkbox(T["need_mgr"],  c.get("need_manager_per_day",     True),
-                                key=f"mgr_{dept_id}_{st.session_state.dept_edit_key}")
-        need_cert = st.checkbox(T["need_cert"], c.get("need_certified_per_shift", False),
-                                key=f"cert_{dept_id}_{st.session_state.dept_edit_key}")
-
-        st.session_state.dept_constraints[dept_id].update({
-            "min_per_shift":            new_mins,
-            "max_per_shift":            new_maxs,
-            "max_consecutive":          max_c,
-            "need_manager_per_day":     need_mgr,
-            "need_certified_per_shift": need_cert,
-        })
-
-st.divider()
+# 【追加】トグルスイッチの配置
+allow_understaff = st.toggle(
+    "⚠️ 制約を緩和してベストエフォートで組む（人数不足を許容する）" if lang == "ja" else "⚠️ Best Effort Mode (Allow understaffing)", 
+    value=False
+)
 
 if st.button(T["run"], type="primary", use_container_width=True):
+    
+    # 【追加】事前チェック（Heuristic Pre-check）ロジック
+    errors = []
+    for dept_id in DEPT_IDS:
+        dept_emps = [e for e in st.session_state.employees if e["dept"] == dept_id]
+        
+        # 部門全体の「最大出勤可能日数」の合計
+        total_max_days = sum(e.get("max_days", 6) for e in dept_emps)
+        
+        # 部門全体の「1週間に必要な最低シフト枠」の合計
+        constr = st.session_state.dept_constraints[dept_id]
+        weekly_min_shifts = sum(constr["min_per_shift"]) * N_DAYS
+        
+        if total_max_days < weekly_min_shifts:
+            dept_name = DEPT_NAMES[lang][dept_id]
+            msg = (
+                f"【{dept_name}】スタッフの最大出勤可能日数の合計({total_max_days}日)が、1週間の最低必要シフト数({weekly_min_shifts}枠)を下回っています。" 
+                if lang == "ja" else 
+                f"[{dept_name}] Total max available days ({total_max_days}) is less than required weekly shifts ({weekly_min_shifts})."
+            )
+            errors.append(msg)
+            
+    if errors and not allow_understaff:
+        for e in errors:
+            st.error(e)
+        warn_msg = "シフト条件を見直すか、「制約を緩和してベストエフォートで組む」をオンにしてください。" if lang == "ja" else "Adjust constraints or enable 'Best Effort Mode' to proceed."
+        st.warning(warn_msg)
+        st.stop() # ここで処理を止めてソルバーの無駄なクラッシュを防ぐ
+
     with st.spinner(T["optimizing"]):
         st.session_state.result = run_optimizer(
             st.session_state.employees,
             st.session_state.dept_constraints,
+            allow_understaffing=allow_understaff # トグルの値を渡す
         )
 
 result = st.session_state.result
@@ -262,109 +322,145 @@ if result["status"] == "no_solution":
 
 st.success(T["result_ok"] if result.get("is_optimal") else T["result_feas"])
 
-schedule  = result["schedule"]
+schedule = result["schedule"]
 employees = st.session_state.employees
 
 
 def _shift_label(s, lang):
-    if s is None: return T["shift_rest"]
+    if s is None:
+        return T["shift_rest"]
     return SHIFT_NAMES[lang][s]
 
 
-def _style_shift(val):
-    mapping = {
-        SHIFT_NAMES["ja"][0]: "background-color:#d4edda;font-weight:500",
-        SHIFT_NAMES["ja"][1]: "background-color:#d1ecf1;font-weight:500",
-        SHIFT_NAMES["ja"][2]: "background-color:#e2d9f3;font-weight:500",
-        SHIFT_NAMES["en"][0]: "background-color:#d4edda;font-weight:500",
-        SHIFT_NAMES["en"][1]: "background-color:#d1ecf1;font-weight:500",
-        SHIFT_NAMES["en"][2]: "background-color:#e2d9f3;font-weight:500",
-    }
-    return mapping.get(val, "color:#bbb")
+_SHIFT_BG = {
+    0: "background-color:#d4edda",
+    1: "background-color:#d1ecf1",
+    2: "background-color:#e2d9f3",
+}
 
 
-# ── シフト表 ──────────────────────────────────────────────────────
-st.header(T["shift_table"])
-
-day_names  = DAY_NAMES[lang]
-result_tabs = st.tabs([DEPT_NAMES[lang][d] for d in DEPT_IDS])
-for tab, dept_id in zip(result_tabs, DEPT_IDS):
-    with tab:
-        dept_emps = [e for e in employees if e["dept"] == dept_id]
-        constr    = st.session_state.dept_constraints[dept_id]
-
-        # シフト表
-        rows = []
-        for emp in dept_emps:
-            row = {T["col_name"]: emp["name"], T["col_role"]: ROLE_NAMES[lang][emp["role"]]}
-            for d in range(N_DAYS):
-                row[day_names[d]] = _shift_label(schedule[emp["id"], d], lang)
-            row[T["days_worked"]] = sum(1 for d in range(N_DAYS) if schedule[emp["id"], d] is not None)
-            rows.append(row)
-        df = pd.DataFrame(rows)
-        st.dataframe(
-            df.style.applymap(_style_shift, subset=day_names),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        # 配置人数サマリー
-        st.caption(T["headcount"])
-        rows2 = []
-        for s in range(N_SHIFTS):
-            row2 = {T["shift_col"]: SHIFT_NAMES[lang][s]}
-            ok   = True
-            for d in range(N_DAYS):
-                count = sum(1 for emp in dept_emps if schedule[emp["id"], d] == s)
-                mn    = constr["min_per_shift"][s]
-                flag  = "" if count >= mn else " ⚠️"
-                row2[day_names[d]] = f"{count}{flag}"
-                if flag:
-                    ok = False
-            row2[T["status_col"]] = T["ok_status"] if ok else T["warn_status"]
-            rows2.append(row2)
-        st.dataframe(pd.DataFrame(rows2), use_container_width=True, hide_index=True)
+def _style_schedule_row(row, emp_by_name: dict, day_to_idx: dict, schedule: dict):
+    emp = emp_by_name[row[T["col_name"]]]
+    styles = []
+    for col in row.index:
+        if col in (T["col_name"], T["col_role"]):
+            styles.append("")
+            continue
+        if col == T["days_worked"]:
+            styles.append("color:#ffffff;font-weight:700")
+            continue
+        if col not in day_to_idx:
+            styles.append("")
+            continue
+        d = day_to_idx[col]
+        assigned = schedule[emp["id"], d]
+        if assigned is None:
+            styles.append("color:#555;font-weight:500")
+            continue
+        bg = _SHIFT_BG.get(assigned, "background-color:#f0f0f0")
+        is_mismatch = emp.get("shift_pref") is not None and assigned != emp["shift_pref"]
+        if is_mismatch:
+            styles.append(f"{bg};color:#c0392b;font-weight:700")
+        else:
+            styles.append(f"{bg};color:#000000;font-weight:700")
+    return styles
 
 
-# ── 満足度 ───────────────────────────────────────────────────────
-st.header(T["satisfaction"])
+def render_shift_table(schedule: dict, employees: list[dict]) -> None:
+    st.header(T["shift_table"])
 
-sat = result["satisfaction"]
-avg = sum(s["score"] for s in sat) / len(sat)
+    day_names = DAY_NAMES[lang]
+    result_tabs = st.tabs([DEPT_NAMES[lang][d] for d in DEPT_IDS])
+    for tab, dept_id in zip(result_tabs, DEPT_IDS):
+        with tab:
+            dept_emps = [e for e in employees if e["dept"] == dept_id]
+            constr = st.session_state.dept_constraints[dept_id]
 
-m1, m2, m3 = st.columns(3)
-m1.metric(T["avg_score"],  f"{avg:.1f} / 100")
-m2.metric(T["perfect"],    f"{sum(1 for s in sat if s['score'] == 100)} 人" if lang == "ja" else f"{sum(1 for s in sat if s['score'] == 100)} staff")
-m3.metric(T["low_score"],  f"{sum(1 for s in sat if s['score'] < 70)} 人" if lang == "ja" else f"{sum(1 for s in sat if s['score'] < 70)} staff")
+            rows = []
+            for emp in dept_emps:
+                row = {T["col_name"]: emp["name"], T["col_role"]: ROLE_NAMES[lang][emp["role"]]}
+                for d in range(N_DAYS):
+                    assigned = schedule[emp["id"], d]
+                    cell_label = _shift_label(assigned, lang)
+                    if emp.get("shift_pref") is not None and assigned is not None and assigned != emp["shift_pref"]:
+                        cell_label = f"{cell_label} ⚠"
+                    row[day_names[d]] = cell_label
+                row[T["days_worked"]] = sum(1 for d in range(N_DAYS) if schedule[emp["id"], d] is not None)
+                rows.append(row)
+            df = pd.DataFrame(rows)
+            emp_by_name = {e["name"]: e for e in dept_emps}
+            day_to_idx = {day_names[d]: d for d in range(N_DAYS)}
 
-sat_df = pd.DataFrame(sat)
-sat_df[T["dept_col"]] = sat_df["dept"].map(DEPT_NAMES[lang])
+            def _apply_row_style(r):
+                return _style_schedule_row(r, emp_by_name, day_to_idx, schedule)
 
-fig = px.bar(
-    sat_df.sort_values("score"),
-    x="score",
-    y="name",
-    color=T["dept_col"],
-    color_discrete_map={v: DEPT_COLORS[k] for k, v in DEPT_NAMES[lang].items()},
-    orientation="h",
-    title=T["satisfaction"],
-    labels={"score": T["avg_score"], "name": ""},
-    hover_data={"soft_ng_violated": True, "pref_missed": True, "days_worked": True},
-)
-fig.add_vline(x=70, line_dash="dash", line_color="red", annotation_text="70")
-fig.update_layout(height=700, xaxis_range=[0, 100], yaxis={"categoryorder": "total ascending"})
-st.plotly_chart(fig, use_container_width=True)
+            st.dataframe(
+                df.style.apply(_apply_row_style, axis=1),
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.caption(T["pref_mismatch_note"])
 
-st.subheader(T["dept_summary"])
-dept_rows = []
-for dept_id in DEPT_IDS:
-    ds = [s for s in sat if s["dept"] == dept_id]
-    dept_rows.append({
-        T["dept_col"]:   f"{DEPT_NAMES[lang][dept_id]} ({dept_id})",
-        T["people_col"]: len(ds),
-        T["avg_sat"]:    f"{sum(s['score'] for s in ds) / len(ds):.1f}",
-        T["soft_viol"]:  sum(s["soft_ng_violated"] for s in ds),
-        T["pref_miss"]:  sum(s["pref_missed"] for s in ds),
-        T["avg_days"]:   f"{sum(s['days_worked'] for s in ds) / len(ds):.1f}",
-    })
-st.dataframe(pd.DataFrame(dept_rows), use_container_width=True, hide_index=True)
+            st.caption(T["headcount"])
+            rows2 = []
+            for s in range(N_SHIFTS):
+                row2 = {T["shift_col"]: SHIFT_NAMES[lang][s]}
+                ok = True
+                for d in range(N_DAYS):
+                    count = sum(1 for emp in dept_emps if schedule[emp["id"], d] == s)
+                    mn = constr["min_per_shift"][s]
+                    flag = "" if count >= mn else " ⚠️"
+                    row2[day_names[d]] = f"{count}{flag}"
+                    if flag:
+                        ok = False
+                row2[T["status_col"]] = T["ok_status"] if ok else T["warn_status"]
+                rows2.append(row2)
+            st.dataframe(pd.DataFrame(rows2), use_container_width=True, hide_index=True)
+
+
+def render_satisfaction(result: dict) -> None:
+    st.header(T["satisfaction"])
+
+    sat = result["satisfaction"]
+    avg = sum(s["score"] for s in sat) / len(sat)
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric(T["avg_score"], f"{avg:.1f} / 100")
+    m2.metric(T["perfect"], f"{sum(1 for s in sat if s['score'] == 100)} 人" if lang == "ja" else f"{sum(1 for s in sat if s['score'] == 100)} staff")
+    m3.metric(T["low_score"], f"{sum(1 for s in sat if s['score'] < 70)} 人" if lang == "ja" else f"{sum(1 for s in sat if s['score'] < 70)} staff")
+
+    sat_df = pd.DataFrame(sat)
+    sat_df[T["dept_col"]] = sat_df["dept"].map(DEPT_NAMES[lang])
+
+    fig = px.bar(
+        sat_df.sort_values("score"),
+        x="score",
+        y="name",
+        color=T["dept_col"],
+        color_discrete_map={v: DEPT_COLORS[k] for k, v in DEPT_NAMES[lang].items()},
+        orientation="h",
+        title=T["satisfaction"],
+        labels={"score": T["avg_score"], "name": ""},
+        hover_data={"soft_ng_violated": True, "pref_missed": True, "days_worked": True},
+    )
+    fig.add_vline(x=70, line_dash="dash", line_color="red", annotation_text="70")
+    fig.update_layout(height=700, xaxis_range=[0, 100], yaxis={"categoryorder": "total ascending"})
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader(T["dept_summary"])
+    dept_rows = []
+    for dept_id in DEPT_IDS:
+        ds = [s for s in sat if s["dept"] == dept_id]
+        dept_rows.append({
+            T["dept_col"]: f"{DEPT_NAMES[lang][dept_id]} ({dept_id})",
+            T["people_col"]: len(ds),
+            T["avg_sat"]: f"{sum(s['score'] for s in ds) / len(ds):.1f}",
+            T["soft_viol"]: sum(s["soft_ng_violated"] for s in ds),
+            T["pref_miss"]: sum(s["pref_missed"] for s in ds),
+            T["avg_days"]: f"{sum(s['days_worked'] for s in ds) / len(ds):.1f}",
+        })
+    st.dataframe(pd.DataFrame(dept_rows), use_container_width=True, hide_index=True)
+
+
+render_shift_table(schedule, employees)
+render_satisfaction(result)

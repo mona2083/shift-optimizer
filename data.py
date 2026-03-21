@@ -29,9 +29,12 @@ SHIFT_PREF_NONE = {"ja": "指定なし", "en": "No preference"}
 
 
 def _role(dept: str, idx: int) -> str:
-    if idx == 0:      return "manager"
-    if idx <= 2:      return "asst_manager"
-    if dept == "A" and idx <= 5: return "certified"
+    if idx == 0:
+        return "manager"
+    if idx <= 2:
+        return "asst_manager"
+    if dept == "A" and idx <= 5:
+        return "certified"
     return "staff"
 
 
@@ -59,22 +62,22 @@ def get_default_employees() -> list[dict]:
 def get_default_dept_constraints() -> dict:
     return {
         "A": {
-            "min_per_shift":            [2, 2, 1],
-            "max_per_shift":            [5, 5, 3],
+            "min_per_shift":            [2, 1, 1],
+            "max_per_shift":            [3, 3, 2],
             "max_consecutive":          5,
             "need_manager_per_day":     True,
             "need_certified_per_shift": True,
         },
         "B": {
-            "min_per_shift":            [2, 2, 1],
-            "max_per_shift":            [4, 4, 3],
+            "min_per_shift":            [2, 1, 1],
+            "max_per_shift":            [2, 2, 2],
             "max_consecutive":          5,
             "need_manager_per_day":     True,
             "need_certified_per_shift": False,
         },
         "C": {
             "min_per_shift":            [1, 1, 1],
-            "max_per_shift":            [3, 3, 2],
+            "max_per_shift":            [2, 2, 1],
             "max_consecutive":          5,
             "need_manager_per_day":     True,
             "need_certified_per_shift": False,
@@ -87,13 +90,13 @@ def randomize_employee_preferences(employees: list[dict], seed: int | None = Non
         random.seed(seed)
     result = []
     for emp in employees:
-        e       = dict(emp)
+        e = dict(emp)
         all_days = list(range(7))
-        n_abs   = random.randint(0, 1)
-        e["abs_ng"]     = random.sample(all_days, n_abs)
-        remain          = [d for d in all_days if d not in e["abs_ng"]]
-        n_soft          = random.randint(0, min(2, len(remain)))
-        e["soft_ng"]    = random.sample(remain, n_soft)
+        n_abs = random.randint(0, 1)
+        e["abs_ng"] = random.sample(all_days, n_abs)
+        remain = [d for d in all_days if d not in e["abs_ng"]]
+        n_soft = random.randint(0, min(2, len(remain)))
+        e["soft_ng"] = random.sample(remain, n_soft)
         e["shift_pref"] = random.choice([None, None, 0, 1, 2])
         e["min_days"]   = random.randint(3, 4)
         e["max_days"]   = random.randint(5, 6)
@@ -106,21 +109,29 @@ def randomize_dept_constraints(constraints: dict, seed: int | None = None) -> di
         random.seed(seed)
     result = {}
     for dept_id, c in constraints.items():
-        r    = dict(c)
-        mins = [random.randint(1, 2), random.randint(1, 2), 1]
-        maxs = [mins[0] + random.randint(1, 3), mins[1] + random.randint(1, 3), mins[2] + random.randint(1, 2)]
-        r["min_per_shift"]   = mins
-        r["max_per_shift"]   = maxs
+        r = dict(c)
+        base_mins = c["min_per_shift"]
+        base_maxs = c["max_per_shift"]
+        mins = []
+        maxs = []
+        for i in range(N_SHIFTS):
+            mn = max(0, base_mins[i] + random.choice([-1, 0, 0, 1]))
+            mx = max(mn, base_maxs[i] + random.choice([-1, 0, 1]))
+            mins.append(mn)
+            maxs.append(mx)
+        r["min_per_shift"] = mins
+        r["max_per_shift"] = maxs
         r["max_consecutive"] = random.randint(4, 6)
-        result[dept_id]      = r
+        result[dept_id] = r
     return result
 
 
 def employees_to_df(employees: list[dict], lang: str):
     import pandas as pd
-    avail     = AVAIL_OPTS[lang]
+
+    avail = AVAIL_OPTS[lang]
     pref_none = SHIFT_PREF_NONE[lang]
-    shifts    = SHIFT_NAMES[lang]
+    shifts = SHIFT_NAMES[lang]
     rows = []
     for emp in employees:
         row = {
@@ -145,18 +156,18 @@ def employees_to_df(employees: list[dict], lang: str):
 
 
 def df_to_employees(df, employees_orig: list[dict], lang: str) -> list[dict]:
-    avail     = AVAIL_OPTS[lang]
+    avail = AVAIL_OPTS[lang]
     pref_none = SHIFT_PREF_NONE[lang]
-    shifts    = SHIFT_NAMES[lang]
-    orig_map  = {e["id"]: e for e in employees_orig}
-    result    = []
+    shifts = SHIFT_NAMES[lang]
+    orig_map = {e["id"]: e for e in employees_orig}
+    result = []
     for _, row in df.iterrows():
-        eid     = int(row["_id"])
-        orig    = orig_map[eid]
-        abs_ng  = [d for d in range(7) if row[f"d{d}"] == avail[2]]
+        eid = int(row["_id"])
+        orig = orig_map[eid]
+        abs_ng = [d for d in range(7) if row[f"d{d}"] == avail[2]]
         soft_ng = [d for d in range(7) if row[f"d{d}"] == avail[1]]
-        pref_s  = row["pref"]
-        pref    = None if pref_s == pref_none else shifts.index(pref_s)
+        pref_s = row["pref"]
+        pref = None if pref_s == pref_none else shifts.index(pref_s)
         result.append({
             **orig,
             "min_days":   int(row["min"]),
