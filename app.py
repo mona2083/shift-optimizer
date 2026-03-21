@@ -269,11 +269,47 @@ def render_step2_department_constraints() -> None:
 render_step1_employee_preferences()
 render_step2_department_constraints()
 
+# 【追加】トグルスイッチの配置
+allow_understaff = st.toggle(
+    "⚠️ 制約を緩和してベストエフォートで組む（人数不足を許容する）" if lang == "ja" else "⚠️ Best Effort Mode (Allow understaffing)", 
+    value=False
+)
+
 if st.button(T["run"], type="primary", use_container_width=True):
+    
+    # 【追加】事前チェック（Heuristic Pre-check）ロジック
+    errors = []
+    for dept_id in DEPT_IDS:
+        dept_emps = [e for e in st.session_state.employees if e["dept"] == dept_id]
+        
+        # 部門全体の「最大出勤可能日数」の合計
+        total_max_days = sum(e.get("max_days", 6) for e in dept_emps)
+        
+        # 部門全体の「1週間に必要な最低シフト枠」の合計
+        constr = st.session_state.dept_constraints[dept_id]
+        weekly_min_shifts = sum(constr["min_per_shift"]) * N_DAYS
+        
+        if total_max_days < weekly_min_shifts:
+            dept_name = DEPT_NAMES[lang][dept_id]
+            msg = (
+                f"【{dept_name}】スタッフの最大出勤可能日数の合計({total_max_days}日)が、1週間の最低必要シフト数({weekly_min_shifts}枠)を下回っています。" 
+                if lang == "ja" else 
+                f"[{dept_name}] Total max available days ({total_max_days}) is less than required weekly shifts ({weekly_min_shifts})."
+            )
+            errors.append(msg)
+            
+    if errors and not allow_understaff:
+        for e in errors:
+            st.error(e)
+        warn_msg = "シフト条件を見直すか、「制約を緩和してベストエフォートで組む」をオンにしてください。" if lang == "ja" else "Adjust constraints or enable 'Best Effort Mode' to proceed."
+        st.warning(warn_msg)
+        st.stop() # ここで処理を止めてソルバーの無駄なクラッシュを防ぐ
+
     with st.spinner(T["optimizing"]):
         st.session_state.result = run_optimizer(
             st.session_state.employees,
             st.session_state.dept_constraints,
+            allow_understaffing=allow_understaff # トグルの値を渡す
         )
 
 result = st.session_state.result
